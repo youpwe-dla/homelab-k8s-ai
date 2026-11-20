@@ -20,6 +20,10 @@
 .PARAMETER Prompt
     Prompt to send.
 
+.NOTES
+    Author: Manny Bate (github.com/youpwe-dla)
+    Part of: homelab-k8s-ai
+
 .EXAMPLE
     .\scripts\Test-Ollama.ps1 -Model llama3.2:3b
     .\scripts\Test-Ollama.ps1 -BaseUrl http://192.168.1.50:11434 -Model llama3.1:8b

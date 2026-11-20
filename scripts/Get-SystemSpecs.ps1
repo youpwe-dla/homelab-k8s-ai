@@ -11,6 +11,10 @@
 .PARAMETER OutFile
     Optional path to write a Markdown table, e.g. .\docs\specs-before.md
 
+.NOTES
+    Author: Manny Bate (github.com/youpwe-dla)
+    Part of: homelab-k8s-ai
+
 .EXAMPLE
     .\scripts\Get-SystemSpecs.ps1
     .\scripts\Get-SystemSpecs.ps1 -OutFile .\docs\specs-before.md

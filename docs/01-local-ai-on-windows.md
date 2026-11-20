@@ -1,8 +1,10 @@
 # Phase 1: Local AI on the Windows workstation
 
+**Author:** Manny Bate ([@youpwe-dla](https://github.com/youpwe-dla)) · **Built:** 2026-11-19 to 2026-11-20
+
 Run open LLMs locally on the existing workstation's NVIDIA GTX 1060 6GB with [Ollama](https://ollama.com), and expose the API to the home network so later Kubernetes workloads can use it.
 
-**Host:** `ai-workstation` · Windows x64 · Intel Xeon E3-1275 v5 (4C/8T) · 16 GB RAM · NVIDIA GTX 1060 6GB · 512 GB SSD + 1 TB HDD
+**Host:** `ai-workstation` (role name; Windows hostname `DESKTOP-TLPE94P`) · Windows 10 Home x64 (build 19045) · Intel Xeon E3-1275 v5 (4C/8T) · 16 GB RAM · NVIDIA GTX 1060 6GB · 512 GB SSD + 1 TB HDD
 
 ## Contents
 
@@ -13,8 +15,8 @@ Run open LLMs locally on the existing workstation's NVIDIA GTX 1060 6GB with [Ol
 5. [Benchmark](#5-benchmark)
 6. [Expose the API on the home network](#6-expose-the-api-on-the-home-network)
 7. [Troubleshooting](#7-troubleshooting)
-8. [Build log](#build-log): what actually happened, including problems and fixes
-9. [Results log](#8-results-log)
+8. [Build log](#8-build-log): what actually happened, including problems and fixes
+9. [Results log](#9-results-log)
 
 ---
 
@@ -41,7 +43,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\scripts\Get-SystemSpecs.ps1 -OutFile .\docs\specs-before.md
 ```
 
-Baseline output (2026-11-19):
+Baseline (2026-11-19), collected with the equivalent manual commands (`Get-CimInstance Win32_Processor`, `Win32_ComputerSystem`, `Win32_VideoController`, `nvidia-smi`, `Get-PhysicalDisk`). The script automates the same queries:
 
 | Item | Value |
 |---|---|
@@ -84,7 +86,7 @@ Install with winget (or download the installer from [ollama.com/download](https:
 winget install Ollama.Ollama
 ```
 
-This is the form that worked on this machine (see the [Build log](#build-log)). If it can't find the package, try `winget install --id Ollama.Ollama -e --source winget`, or download `OllamaSetup.exe` from [ollama.com/download/windows](https://ollama.com/download/windows).
+This is the form that worked on this machine (see the [Build log](#8-build-log)). If it can't find the package, try `winget install --id Ollama.Ollama -e --source winget`, or download `OllamaSetup.exe` from [ollama.com/download/windows](https://ollama.com/download/windows).
 
 > With `-e` (exact match) the package ID is **case-sensitive**: `Ollama.Ollama` works, `ollama.ollama` returns "No package found". The first winget run may also ask you to accept the `msstore` source agreements. Use `winget search ollama` to confirm the ID; install **Ollama** (`Ollama.Ollama`), not `Ollama.Ollama.Portable` or the third-party apps tagged `ollama`.
 
@@ -130,8 +132,8 @@ Also confirm with `nvidia-smi` that `ollama` appears in the process list and VRA
 | Model | Command | Approx. size | Notes |
 |---|---|---|---|
 | Llama 3.2 3B | `ollama run llama3.2:3b` | ~2 GB | Fast; good first test |
-| Qwen 3 4B | `ollama run qwen3:4b` | ~2.5 GB | Strong for its size |
-| Llama 3.1 8B (Q4) | `ollama run llama3.1:8b` | ~4.9 GB | Best quality that fits; near the 6 GB limit, keep context short |
+| Qwen 3 4B | `ollama run qwen3:4b` | ~2.5 GB | Strong for its size (not yet tested here) |
+| Llama 3.1 8B (Q4) | `ollama run llama3.1:8b` | ~4.9 GB | Best quality of the three; on this machine it spills 20–25% to the CPU (see below) |
 
 Check exact tags and sizes in the [Ollama model library](https://ollama.com/library) before pulling.
 
@@ -141,24 +143,26 @@ If an 8B model spills to the CPU, shrink the context window inside the chat sess
 /set parameter num_ctx 2048
 ```
 
-**Measured on this machine:** `llama3.1:8b` still spilled at 2048 context (5.4 GB, 20%/80% CPU/GPU, 15.12 tokens/s), because this GPU also drives the Windows desktop and background apps hold ~0.7 GB of VRAM. On a 6 GB card that runs the display, treat 3B–4B models as the "fits fully" tier and 8B as "works, but partly on CPU".
+**Measured on this machine:** `llama3.1:8b` still spilled at 2048 context (5.4 GB, 20%/80% CPU/GPU, 15.12 tokens/s), because this GPU also drives the Windows desktop and background apps hold ~0.7 GB of VRAM. On a 6 GB card that runs the display, treat 3B-class models as the "fits fully" tier (4B expected to fit, not yet tested) and 8B as "works, but partly on CPU".
 
 ## 5. Benchmark
 
 Get per-response timings with `--verbose`:
 
 ```powershell
-ollama run llama3.2:3b --verbose "Explain Kubernetes in three sentences."
+ollama run llama3.2:3b --verbose "Explain what Kubernetes does in three sentences."
 ```
 
-The **eval rate** line (tokens/s) is the generation speed. Ignore the **prompt eval rate** on repeat runs: Ollama caches the prompt, so only a few new tokens are processed and the rate looks artificially low. Or use the repo script, which calls the API and reports the same numbers:
+The **eval rate** line (tokens/s) is the generation speed. Ignore the **prompt eval rate** on repeat runs: Ollama caches the prompt, so only a few new tokens are processed and the rate looks artificially low.
+
+The repo script calls the API and reports the same timings:
 
 ```powershell
 .\scripts\Test-Ollama.ps1 -Model llama3.2:3b
 .\scripts\Test-Ollama.ps1 -Model llama3.1:8b
 ```
 
-Record the results in the [Results log](#8-results-log).
+Record the results in the [Results log](#9-results-log).
 
 ## 6. Expose the API on the home network
 
@@ -190,7 +194,9 @@ By default Ollama listens only on `localhost`. To let the Kubernetes nodes (Phas
 
 5. Give it a fixed address: create a **DHCP reservation** in the router for this PC, so the address doesn't change.
 
-   **Spectrum routers** can't be configured by logging in to the router. Use the **My Spectrum app**: Services → Router → Advanced Settings → Port Forwarding & IP Reservations → select the PC → turn on **Reserve IP Address**. Spectrum reserves the address the device has now (here `192.168.1.240`); you can't type a different one. Do **not** add a port assignment, which would expose Ollama to the internet.
+   **Spectrum routers** can't be configured by logging in to the router. Use the **My Spectrum app**: Services → Router → Advanced Settings → Port Forwarding & IP Reservations → select the PC → turn on **Reserve IP Address**. Spectrum reserves the address the device has now; you can't type a different one. Do **not** add a port assignment, which would expose Ollama to the internet.
+
+   **On this lab's Spectrum router the reservation option was not available** in either the website or the app (see the [Build log](#8-build-log)). The workstation stays on DHCP for now; a dedicated router is planned for Phase 2.
 
 6. Test from another device on the network:
 
@@ -216,14 +222,14 @@ To undo: `Remove-NetFirewallRule -DisplayName "Ollama API (LAN only)"` and `setx
 | A model runs partly on CPU (`x%/y% CPU/GPU`) | Model or context too large for 6 GB | Use a smaller model or quantization; `/set parameter num_ctx 2048` |
 | NVIDIA installer refuses a newer driver | Card not supported after the 580 branch | Install the newest **580.xx** release for GTX 10 series |
 | `netstat` still shows `127.0.0.1:11434` after setting `OLLAMA_HOST` | Ollama didn't restart with the new variable (a background process kept running), or the app's own network setting is off | Check `[Environment]::GetEnvironmentVariable('OLLAMA_HOST','User')`; stop all Ollama processes (`Get-Process -Name 'ollama*' \| Stop-Process -Force`); start Ollama from the Start menu; or turn on **Settings → Expose Ollama to the network** in the app |
-| `curl` from another machine times out | Firewall or listen address | Check the firewall rule exists; confirm `OLLAMA_HOST` is set and Ollama was restarted; `netstat -ano | findstr 11434` should show `0.0.0.0:11434` |
+| `curl` from another machine times out | Firewall or listen address | Check the firewall rule exists; confirm `OLLAMA_HOST` is set and Ollama was restarted; `netstat -ano \| findstr 11434` should show `0.0.0.0:11434` |
 | `winget install` says "No package found matching input criteria" | With `-e` the ID is case-sensitive (`Ollama.Ollama`, not `ollama.ollama`), or the winget source is stale | `winget install --id Ollama.Ollama -e --source winget`; or `winget source update` then `winget search ollama`; or use the installer from ollama.com/download/windows |
 | `winget search ollama` finds the package but `winget install` still says "No package found" | winget client quirk with `--id`/`-e`/`--source` | `winget install Ollama.Ollama` (no flags), or download and run the installer: `Invoke-WebRequest -Uri https://ollama.com/download/OllamaSetup.exe -OutFile "$env:USERPROFILE\Downloads\OllamaSetup.exe"` then `Start-Process "$env:USERPROFILE\Downloads\OllamaSetup.exe"` |
 | `New-NetFirewallRule : Access is denied` | Command run in a non-admin PowerShell | Right-click PowerShell → **Run as administrator** (prompt shows `C:\Windows\system32>`) and run it there |
 | `ollama` not found after install | PATH not refreshed in the window that was open during install | Close and reopen PowerShell, or reload PATH in place: `$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')` |
 | Very slow first response | Model loading into VRAM | Normal on first call; later calls are faster while the model stays loaded |
 
-## Build log
+## 8. Build log
 
 What actually happened during the Phase 1 build, in order, including problems and fixes.
 
@@ -233,18 +239,19 @@ What actually happened during the Phase 1 build, in order, including problems an
 | 2026-11-19 | Driver download | nvidia.com manual search (GeForce 10 Series, GTX 1060) offered **580.97** | Correct branch: 580 is the last to support Pascal |
 | 2026-11-19 | Driver install | Installer offered "Driver + NVIDIA App" or "Driver only" | Chose **driver only**; Custom → clean installation; kept HD Audio; PhysX already current |
 | 2026-11-19 | Driver verify | `nvidia-smi`: driver 580.97, CUDA 13.0, 688 MiB of 6144 MiB in use at idle | Success. About 5.4 GB VRAM free for models |
-| 2026-11-19 | Ollama install (attempt 1) | `winget install --id ollama.ollama -e` → accepted `msstore` source agreements → "No package found matching input criteria" (twice) | Cause: `-e` makes the ID case-sensitive |
+| 2026-11-19 | Ollama install (attempt 1) | `winget install --id ollama.ollama -e` → accepted `msstore` source agreements → "No package found matching input criteria" (twice) | Likely cause: `-e` makes the ID case-sensitive |
 | 2026-11-19 | Ollama install (attempt 2) | `winget source update`, then `winget search ollama` listed **Ollama** `Ollama.Ollama` **0.40.16** | Install with `winget install --id Ollama.Ollama -e --source winget` |
 | 2026-11-19 | Ollama install (attempt 3) | Install command still returned "No package found matching input criteria", although `winget search` found the package; `ollama --version` → "not recognized" (nothing installed) | Retry without strict flags (`winget install Ollama.Ollama`), or use the official installer `OllamaSetup.exe` from ollama.com/download/windows |
 | 2026-11-19 | Ollama install (attempt 4) | `winget install Ollama.Ollama` (no flags): found 0.40.16, downloaded the 1.73 GB installer, hash verified, "Successfully installed". `ollama --version` in the **same** window → "not recognized" | **Success.** The open window had the old PATH: open a new PowerShell window, or reload PATH in place (see Troubleshooting) |
+| 2026-11-19 | Ollama first launch | The Ollama desktop app opened a "Welcome to Ollama!" screen | Clicked Continue; no sign-in needed for local models. Models tagged `cloud` run on Ollama's servers, not locally, so they are avoided in this lab |
 | 2026-11-19 | Ollama verify | Reloaded PATH in the open window, then `ollama --version` → `ollama version is 0.40.16` | **Success.** Ollama 0.40.16 installed and on PATH |
 | 2026-11-19 | First model pull | `ollama run llama3.2:3b` → 2.0 GB download at ~14 MB/s, sha256 verified, "success". The terminal printed many repeated "pulling manifest" lines before the progress bar | **Success.** The repeated lines are cosmetic (progress redraw in Windows PowerShell) |
 | 2026-11-19 | First prompt | Asked "Explain what Kubernetes does in three sentences" and got a correct three-sentence answer | **Success.** Local LLM working |
 | 2026-11-19 | GPU check | `ollama ps`: `llama3.2:3b`, size 2.6 GB, **PROCESSOR 100% GPU**, context 4096, runner `llamacpp`, unloads 5 minutes after last use | **Success.** The model runs entirely on the GTX 1060 |
-| 2026-11-19 | Benchmark 3B | `ollama run llama3.2:3b --verbose "Explain what Kubernetes does in three sentences."` → eval rate **43.64 tokens/s** (102 tokens in 2.34 s), total 2.58 s. Prompt: 34 tokens, 28 served from cache, so the prompt rate (26 tokens/s) only reflects 6 new tokens | **Success.** About 3x faster than reading speed; fine for interactive chat |
+| 2026-11-19 | Benchmark 3B | `ollama run llama3.2:3b --verbose "Explain what Kubernetes does in three sentences."` → eval rate **43.64 tokens/s** (102 tokens in 2.34 s), total 2.58 s. Prompt: 34 tokens, 28 served from cache, so the prompt rate (26 tokens/s) only reflects 6 new tokens | **Success.** Fast enough for interactive chat |
 | 2026-11-19 | 8B model pull | `ollama run llama3.1:8b --verbose ...` → 4.9 GB download at ~7.6 MB/s (about 10 min). Meanwhile `ollama ps` still showed only `llama3.2:3b` (100% GPU), counting down to unload | Download completed (4.9 GB, sha256 verified). The 3B model unloaded after its 5-minute timer, freeing VRAM |
 | 2026-11-19 | Benchmark 8B | Correct three-sentence answer. Eval rate **13.70 tokens/s** (108 tokens in 7.88 s), load 5.37 s, total 13.72 s. `ollama ps`: `llama3.1:8b`, size **5.6 GB**, **PROCESSOR 25%/75% CPU/GPU**, context 4096 | **Partial spill.** 5.6 GB needed vs ~5.4 GB free (the desktop uses ~0.7 GB), so 25% runs on the CPU and generation is about 3x slower than the 3B. Next: retry with `num_ctx 2048` and browsers closed |
-| 2026-11-19 | 8B retry, smaller context | No browser windows open, but `nvidia-smi` still lists background GPU users (Edge WebView2, Claude desktop app, Copilot, Phone Link, NordVPN, NVIDIA Share, Windows shell). In `ollama run llama3.1:8b --verbose`: `/set parameter num_ctx 2048`. Result: size **5.4 GB**, **20%/80% CPU/GPU**, eval rate **15.12 tokens/s**. `nvidia-smi` with the model loaded: 4745 MiB of 6144 MiB used, GPU at 50 °C | **Improved slightly, still spills.** An 8B Q4 model does not fit fully in 6 GB on a GPU that also drives the Windows desktop. Decision: use 3B/4B models for speed and 8B (~15 tokens/s) when quality matters; a 12 GB GPU (RTX 3060) removes the limit |
+| 2026-11-19 | 8B retry, smaller context | No browser windows open, but `nvidia-smi` still lists background GPU users (Edge WebView2, Copilot, Phone Link, NordVPN, NVIDIA Share, Windows shell and other desktop apps). In `ollama run llama3.1:8b --verbose`: `/set parameter num_ctx 2048`. Result: size **5.4 GB**, **20%/80% CPU/GPU**, eval rate **15.12 tokens/s**. `nvidia-smi` with the model loaded: 4745 MiB of 6144 MiB used, GPU at 50 °C | **Improved slightly, still spills.** An 8B Q4 model does not fit fully in 6 GB on a GPU that also drives the Windows desktop. Decision: use 3B-class models for speed (4B to be tested) and 8B (~15 tokens/s) when quality matters; a 12 GB GPU (RTX 3060) removes the limit |
 | 2026-11-19 | Network: listen address | `setx OLLAMA_HOST "0.0.0.0:11434"`, quit Ollama from the tray, reopened it (opens to the app's "Apps" integrations page) | Ollama restarted |
 | 2026-11-19 | Network: firewall (attempt 1) | `New-NetFirewallRule ...` in a normal PowerShell window → "Access is denied" (Windows System Error 5) | Must run in **Administrator** PowerShell: the admin window's prompt shows `C:\Windows\system32>`, a normal one shows `C:\Users\<name>>` |
 | 2026-11-19 | Network: firewall (attempt 2) | Same command in an Administrator PowerShell (ISE) → rule "Ollama API (LAN only)" created: Enabled True, Direction Inbound, Action Allow, Profile Any, PrimaryStatus OK | **Success.** Scoped to `LocalSubnet`, so only devices on the home network can connect |
@@ -258,16 +265,17 @@ What actually happened during the Phase 1 build, in order, including problems an
 | 2026-11-20 | Fixed IP: decision | Chose **(b) static IP in Windows** for the Wi-Fi adapter, keeping the current address 192.168.1.240. Known risk: the Spectrum router doesn't know about it and could hand the same address to another device | In progress. Collect current gateway and DNS first |
 | 2026-11-20 | Fixed IP: current settings | `Format-List` on `Get-NetIPConfiguration` printed raw CIM objects instead of values. Re-queried with `$c.IPv4DefaultGateway.NextHop` and `$c.DNSServer ... .ServerAddresses` → **Gateway 192.168.1.1**, **DNS 192.168.1.1** | Values for the static config: IP 192.168.1.240/24, gateway 192.168.1.1, DNS 192.168.1.1 + 1.1.1.1 |
 | 2026-11-20 | Fixed IP: final decision | Decided **not** to set a static IP in Windows (avoids an address conflict with the Spectrum router's DHCP). Reverted to **option (a)**: keep DHCP and check the address after reboots with `(Get-NetIPConfiguration -InterfaceAlias "Wi-Fi").IPv4Address.IPAddress` | **Closed for Phase 1.** Long-term fix: own router in Phase 2 (fixed node IPs and a MetalLB address range). The static values above are kept for reference |
-| 2026-11-19 | Ollama first launch | The Ollama desktop app opened a "Welcome to Ollama!" screen | Clicked Continue; no sign-in needed for local models. Models tagged `cloud` run on Ollama's servers, not locally, so they are avoided in this lab |
+| 2026-11-20 | Scripts verified | `Get-SystemSpecs.ps1` (after `Set-ExecutionPolicy -Scope Process Bypass`) reported Windows 10 Home build 19045, Xeon E3-1275 v5 4C/8T, 16 GB, GTX 1060 6GB with driver `32.0.15.8097` correctly converted to **580.97**, both disks, Ollama 0.40.16. `Test-Ollama.ps1 -Model llama3.2:3b`: API reachable, 2 models listed, load 14.33 s (cold start), prompt 34 tokens at 232.2 tokens/s, **86 output tokens at 45.4 tokens/s**, total 16.45 s, `ollama ps` 100% GPU | **Success.** Both repo scripts run as published on Windows PowerShell 5.1 |
 
-## 8. Results log
+## 9. Results log
 
 | Date | Model | Quantization | Context | Processor (`ollama ps`) | Eval rate (tokens/s) | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-20 | llama3.2:3b | default (Q4) | 4096 | 100% GPU (2.6 GB loaded) | **45.4** | Measured with `Test-Ollama.ps1`; cold start (load 14.33 s); 86 output tokens; prompt 232.2 tokens/s |
 | 2026-11-19 | llama3.2:3b | default (Q4) | 4096 | 100% GPU (2.6 GB loaded) | **43.64** | 102 output tokens in 2.34 s; total 2.58 s; model already loaded (load 3.7 ms); answers correct |
-| | qwen3:4b | default (Q4) | default | | | |
 | 2026-11-19 | llama3.1:8b | default (Q4) | 4096 | 25%/75% CPU/GPU (5.6 GB loaded) | **13.70** | Spills to CPU; 108 tokens in 7.88 s; load 5.37 s |
 | 2026-11-19 | llama3.1:8b | default (Q4) | 2048 | 20%/80% CPU/GPU (5.4 GB loaded) | **15.12** | Still spills; 97 tokens in 6.42 s; load 6.33 s. About 10% faster than with 4096 context |
+| | qwen3:4b | default (Q4) | default | | | Not yet tested |
 
 ## Next: Phase 2
 

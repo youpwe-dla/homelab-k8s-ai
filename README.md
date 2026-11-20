@@ -2,17 +2,19 @@
 
 A low-cost homelab for running Kubernetes workloads and local AI/ML models (LLMs) on my own hardware, with no cloud dependency.
 
+**Author:** Manny Bate · [github.com/youpwe-dla](https://github.com/youpwe-dla)
+
 **Status:** Phase 1 complete (2026-11-19). Ollama runs local LLMs on the workstation's GTX 1060 and serves its API to the home network at `http://192.168.1.240:11434`. Next: Phase 2, the Kubernetes cluster.
 
 ## Phase 1 results
 
-| Model | Fits on GPU? | Speed (tokens/s) |
+| Model | Fits on GPU? | Generation speed (tokens/s) |
 |---|---|---|
-| llama3.2:3b | Yes, 100% GPU (2.6 GB) | 43.64 |
+| llama3.2:3b | Yes, 100% GPU (2.6 GB) | 43.6–45.4 (two runs) |
 | llama3.1:8b, 4096 context | No, 25%/75% CPU/GPU (5.6 GB) | 13.70 |
 | llama3.1:8b, 2048 context | No, 20%/80% CPU/GPU (5.4 GB) | 15.12 |
 
-Takeaway: on a 6 GB card that also drives the Windows desktop, 3B–4B models run fully on the GPU; 8B models work but partly on the CPU. Full build log, problems and fixes: [docs/01-local-ai-on-windows.md](docs/01-local-ai-on-windows.md).
+Takeaway: on a 6 GB card that also drives the Windows desktop, a 3B model runs fully on the GPU at ~44 tokens/s; an 8B model works but runs 20–25% on the CPU at ~14–15 tokens/s. Full build log, problems and fixes: [docs/01-local-ai-on-windows.md](docs/01-local-ai-on-windows.md).
 
 ## Goals
 
@@ -40,7 +42,7 @@ Kubernetes workloads call the Ollama API on the AI workstation over the LAN. Lat
 
 | Host | Role | CPU | RAM | GPU | Storage | Status |
 |---|---|---|---|---|---|---|
-| ai-workstation | Local AI / GPU node | Intel Xeon E3-1275 v5 (4C/8T, 3.6 GHz) | 16 GB | NVIDIA GTX 1060 6GB (Pascal, CUDA compute 6.1) | 512 GB SSD + 1 TB HDD | Active |
+| ai-workstation (Windows 10 Home) | Local AI / GPU node | Intel Xeon E3-1275 v5 (4C/8T, 3.6 GHz) | 16 GB | NVIDIA GTX 1060 6GB (Pascal, CUDA compute 6.1) | 512 GB SSD + 1 TB HDD | Active |
 | k8s-node-1..3 | Kubernetes nodes | Intel i5-8600T (6C) | 8 GB (upgradeable to 32 GB) | Intel UHD 630 | 256 GB NVMe | Planned (~$139 each, used) |
 
 ## Roadmap
@@ -58,12 +60,15 @@ Kubernetes workloads call the Ollama API on the AI workstation over the LAN. Lat
 ```
 .
 ├── README.md                      # This file: overview, inventory, roadmap
+├── .gitattributes                 # Line-ending rules (CRLF for .ps1)
 ├── docs/
 │   └── 01-local-ai-on-windows.md  # Phase 1 runbook
 └── scripts/
     ├── Get-SystemSpecs.ps1        # Hardware and driver inventory
     └── Test-Ollama.ps1            # Health check and benchmark for the Ollama API
 ```
+
+Both scripts were run and verified on the workstation (Windows PowerShell 5.1) on 2026-11-20.
 
 ## Quick start (Phase 1)
 
